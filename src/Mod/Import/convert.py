@@ -33,6 +33,49 @@ IGES 파일을 STEP으로 변환::
 
     import convert
     convert.convert("/경로/모델.igs", "/경로/모델.step")
+
+Writer 입력 데이터 구조 및 데이터 공급 함수
+--------------------------------------------
+IGES Writer(``WriterIges::write``)와 STEP Writer(``WriterStep::write``)는 모두
+``Handle(TDocStd_Document)`` — OpenCASCADE XCAF 문서 핸들을 입력으로 받습니다.
+
+XCAF 문서란?
+    OpenCASCADE의 확장 데이터 프레임워크(XCAF, Extended CAF) 기반 문서로,
+    3D 형상(TopoShape), 색상, 이름, 조립 구조 등의 메타데이터를 트리 구조로
+    저장합니다. 실제 형상 데이터는 ``XCAFDoc_ShapeTool``, 색상 정보는
+    ``XCAFDoc_ColorTool``을 통해 관리됩니다.
+
+데이터가 Writer에 전달되기까지의 파이프라인 (``AppImportPy.cpp::exporter()``)::
+
+    Python: Import.export(objects, filename)
+         │
+         ▼
+    ① XCAFApp_Application::GetApplication()->NewDocument("MDTV-CAF", hDoc)
+       — 빈 XCAF 문서(TDocStd_Document) 생성
+         │
+         ▼
+    ② ExportOCAF2::exportObjects(objs)          ← 핵심 변환 함수
+       — App::DocumentObject* 목록을 XCAF 문서로 변환
+         • 각 객체의 TopoShape  → XCAFDoc_ShapeTool (형상 노드 등록)
+         • 각 객체의 색상 정보  → XCAFDoc_ColorTool (색상 노드 등록)
+         • 레거시 경로: ExportOCAFCmd::exportObjects() 사용
+         │
+         ▼
+    ③ WriterIges::write(hDoc)  또는  WriterStep::write(hDoc)
+       — 채워진 XCAF 문서를 파일로 저장
+
+Writer 내부 동작 요약:
+
+* **IGES Writer** (``WriterIges.cpp``):
+  - ``IGESCAFControl_Writer::Transfer(hDoc)`` 로 XCAF → IGES 엔터티 변환
+  - 헤더(Author/Company/Product)는 ``Part::Interface::writeIgesHeader*()`` 설정에서 읽음
+  - ``writer.Write(filename)`` 로 파일 저장; 실패 시 ``Base::FileException`` 발생
+
+* **STEP Writer** (``WriterStep.cpp``):
+  - ``STEPCAFControl_Writer::Transfer(hDoc, STEPControl_AsIs)`` 로 XCAF → STEP 변환
+  - 헤더(Author/Company 등)는 ``BaseApp/Preferences/Mod/Part/STEP`` 설정에서 읽음
+  - STEP은 UTF-8 파일명을 지원하지 않으므로 FileName 헤더 필드는 생략
+  - ``writer.Write(filename)`` 로 파일 저장; 실패 시 ``Base::FileException`` 발생
 """
 
 import os
