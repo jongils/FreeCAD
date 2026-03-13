@@ -1,38 +1,38 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 # ****************************************************************************
-# *  FreeCAD model conversion utility for STEP and IGS/IGES file formats     *
+# *  FreeCAD STEP 및 IGS/IGES 파일 형식을 위한 3D 모델 변환 유틸리티          *
 # *                                                                           *
-# *  This module provides helper functions to convert 3D models between      *
-# *  STEP (.step/.stp) and IGS/IGES (.igs/.iges) formats programmatically.  *
+# *  이 모듈은 STEP(.step/.stp)과 IGS/IGES(.igs/.iges) 형식 사이의            *
+# *  3D 모델 변환을 프로그래밍 방식으로 지원하는 헬퍼 함수를 제공합니다.     *
 # *                                                                           *
-# *  Underlying conversion code:                                             *
-# *    IGES reader : src/Mod/Import/App/ReaderIges.cpp  (IGESCAFControl_Reader) *
-# *    IGES writer : src/Mod/Import/App/WriterIges.cpp  (IGESCAFControl_Writer) *
-# *    STEP reader : src/Mod/Import/App/ReaderStep.cpp  (STEPCAFControl_Reader) *
-# *    STEP writer : src/Mod/Import/App/WriterStep.cpp  (STEPCAFControl_Writer) *
-# *    Python API  : src/Mod/Import/App/AppImportPy.cpp (Import.open/insert/export) *
+# *  내부 변환 코드 위치:                                                     *
+# *    IGES 읽기 : src/Mod/Import/App/ReaderIges.cpp (IGESCAFControl_Reader)  *
+# *    IGES 쓰기 : src/Mod/Import/App/WriterIges.cpp (IGESCAFControl_Writer)  *
+# *    STEP 읽기 : src/Mod/Import/App/ReaderStep.cpp (STEPCAFControl_Reader)  *
+# *    STEP 쓰기 : src/Mod/Import/App/WriterStep.cpp (STEPCAFControl_Writer)  *
+# *    Python API : src/Mod/Import/App/AppImportPy.cpp (Import.open/insert/export) *
 # ****************************************************************************
 
 """
-Utility module for converting 3D model files between STEP and IGES formats.
+STEP 및 IGES 파일 형식 간 3D 모델 변환 유틸리티 모듈.
 
-Supported formats
------------------
+지원 형식
+---------
 * STEP : ``.step``, ``.stp``
 * IGES : ``.iges``, ``.igs``
 
-Typical usage
--------------
-Convert a STEP file to IGES::
+사용 예시
+---------
+STEP 파일을 IGES로 변환::
 
     import convert
-    convert.convert("/path/to/model.step", "/path/to/model.igs")
+    convert.convert("/경로/모델.step", "/경로/모델.igs")
 
-Convert an IGES file to STEP::
+IGES 파일을 STEP으로 변환::
 
     import convert
-    convert.convert("/path/to/model.igs", "/path/to/model.step")
+    convert.convert("/경로/모델.igs", "/경로/모델.step")
 """
 
 import os
@@ -42,71 +42,70 @@ import Import
 
 
 # ---------------------------------------------------------------------------
-# Public constants
+# 공개 상수
 # ---------------------------------------------------------------------------
 
-#: File extensions recognised as STEP format (lower-case, with leading dot).
+#: STEP 형식으로 인식되는 파일 확장자 (소문자, 점 포함).
 STEP_EXTENSIONS = frozenset({".step", ".stp"})
 
-#: File extensions recognised as IGES format (lower-case, with leading dot).
+#: IGES 형식으로 인식되는 파일 확장자 (소문자, 점 포함).
 IGES_EXTENSIONS = frozenset({".iges", ".igs"})
 
-#: All supported file extensions.
+#: 지원되는 모든 파일 확장자.
 SUPPORTED_EXTENSIONS = STEP_EXTENSIONS | IGES_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# 공개 API
 # ---------------------------------------------------------------------------
 
 
 def convert(source_file, target_file):
-    """Convert a 3D model file between STEP and IGES formats.
+    """STEP 또는 IGES 형식의 3D 모델 파일을 상호 변환합니다.
 
-    The function imports *source_file* into a temporary FreeCAD document and
-    immediately exports all resulting objects to *target_file*.  The temporary
-    document is always closed afterwards, even if an error occurs.
+    *source_file* 을 임시 FreeCAD 문서로 불러온 뒤, 불러온 모든 객체를
+    *target_file* 로 내보냅니다. 오류가 발생하더라도 임시 문서는 항상 닫힙니다.
 
-    Parameters
-    ----------
-    source_file : str
-        Path to the source model file.  Must have a ``.step``, ``.stp``,
-        ``.iges``, or ``.igs`` extension (case-insensitive).
-    target_file : str
-        Destination path for the converted model.  The format is determined
-        by the file extension (same set as *source_file*).
-
-    Raises
-    ------
-    ValueError
-        If *source_file* or *target_file* has an unsupported extension.
-    RuntimeError
-        If no objects could be read from *source_file*, or if the underlying
-        import/export operation fails.
-
-    Examples
+    매개변수
     --------
-    Convert a STEP file to IGES:
+    source_file : str
+        원본 모델 파일 경로. 확장자가 ``.step``, ``.stp``, ``.iges``,
+        ``.igs`` 중 하나여야 합니다 (대소문자 구분 없음).
+    target_file : str
+        변환된 모델을 저장할 경로. 파일 형식은 확장자로 결정됩니다
+        (*source_file* 과 동일한 확장자 집합을 지원).
+
+    예외
+    ----
+    ValueError
+        *source_file* 또는 *target_file* 의 확장자가 지원되지 않는 경우.
+    RuntimeError
+        *source_file* 에서 객체를 읽을 수 없거나, 내부 가져오기/내보내기
+        작업이 실패한 경우.
+
+    사용 예
+    -------
+    STEP 파일을 IGES로 변환:
 
     >>> import convert
-    >>> convert.convert("assembly.step", "assembly.igs")
+    >>> convert.convert("어셈블리.step", "어셈블리.igs")
 
-    Convert an IGES file to STEP:
+    IGES 파일을 STEP으로 변환:
 
-    >>> convert.convert("part.igs", "part.step")
+    >>> convert.convert("부품.igs", "부품.step")
     """
     src_ext = os.path.splitext(source_file)[1].lower()
     tgt_ext = os.path.splitext(target_file)[1].lower()
 
     if src_ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(
-            "Unsupported source format '{}'. Supported extensions: {}".format(
+            "지원하지 않는 원본 형식 '{}'. 지원 확장자: {}".format(
                 src_ext, ", ".join(sorted(SUPPORTED_EXTENSIONS))
             )
         )
     if tgt_ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(
-            "Unsupported target format '{}'. Supported extensions: {}".format(
+            "지원하지 않는 대상 형식 '{}'. 지원 확장자: {}".format(
                 tgt_ext, ", ".join(sorted(SUPPORTED_EXTENSIONS))
             )
         )
@@ -117,7 +116,7 @@ def convert(source_file, target_file):
         objects = list(doc.Objects)
         if not objects:
             raise RuntimeError(
-                "No objects were imported from '{}'.".format(source_file)
+                "'{}' 에서 가져온 객체가 없습니다.".format(source_file)
             )
         Import.export(objects, target_file)
     finally:
