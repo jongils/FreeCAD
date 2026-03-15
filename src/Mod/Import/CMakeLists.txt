@@ -43,6 +43,7 @@ SET(DXF_Plate
 
 set(Import_Scripts
     Init.py
+    convert.py
     stepZ.py
 )
 

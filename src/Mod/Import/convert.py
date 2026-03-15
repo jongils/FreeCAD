@@ -1,0 +1,166 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# ****************************************************************************
+# *  FreeCAD STEP 및 IGS/IGES 파일 형식을 위한 3D 모델 변환 유틸리티          *
+# *                                                                           *
+# *  이 모듈은 STEP(.step/.stp)과 IGS/IGES(.igs/.iges) 형식 사이의            *
+# *  3D 모델 변환을 프로그래밍 방식으로 지원하는 헬퍼 함수를 제공합니다.     *
+# *                                                                           *
+# *  내부 변환 코드 위치:                                                     *
+# *    IGES 읽기 : src/Mod/Import/App/ReaderIges.cpp (IGESCAFControl_Reader)  *
+# *    IGES 쓰기 : src/Mod/Import/App/WriterIges.cpp (IGESCAFControl_Writer)  *
+# *    STEP 읽기 : src/Mod/Import/App/ReaderStep.cpp (STEPCAFControl_Reader)  *
+# *    STEP 쓰기 : src/Mod/Import/App/WriterStep.cpp (STEPCAFControl_Writer)  *
+# *    Python API : src/Mod/Import/App/AppImportPy.cpp (Import.open/insert/export) *
+# ****************************************************************************
+
+"""
+STEP 및 IGES 파일 형식 간 3D 모델 변환 유틸리티 모듈.
+
+지원 형식
+---------
+* STEP : ``.step``, ``.stp``
+* IGES : ``.iges``, ``.igs``
+
+사용 예시
+---------
+STEP 파일을 IGES로 변환::
+
+    import convert
+    convert.convert("/경로/모델.step", "/경로/모델.igs")
+
+IGES 파일을 STEP으로 변환::
+
+    import convert
+    convert.convert("/경로/모델.igs", "/경로/모델.step")
+
+Writer 입력 데이터 구조 및 데이터 공급 함수
+--------------------------------------------
+IGES Writer(``WriterIges::write``)와 STEP Writer(``WriterStep::write``)는 모두
+``Handle(TDocStd_Document)`` — OpenCASCADE XCAF 문서 핸들을 입력으로 받습니다.
+
+XCAF 문서란?
+    OpenCASCADE의 확장 데이터 프레임워크(XCAF, Extended CAF) 기반 문서로,
+    3D 형상(TopoShape), 색상, 이름, 조립 구조 등의 메타데이터를 트리 구조로
+    저장합니다. 실제 형상 데이터는 ``XCAFDoc_ShapeTool``, 색상 정보는
+    ``XCAFDoc_ColorTool``을 통해 관리됩니다.
+
+데이터가 Writer에 전달되기까지의 파이프라인 (``AppImportPy.cpp::exporter()``)::
+
+    Python: Import.export(objects, filename)
+         │
+         ▼
+    ① XCAFApp_Application::GetApplication()->NewDocument("MDTV-CAF", hDoc)
+       — 빈 XCAF 문서(TDocStd_Document) 생성
+         │
+         ▼
+    ② ExportOCAF2::exportObjects(objs)          ← 핵심 변환 함수
+       — App::DocumentObject* 목록을 XCAF 문서로 변환
+         • 각 객체의 TopoShape  → XCAFDoc_ShapeTool (형상 노드 등록)
+         • 각 객체의 색상 정보  → XCAFDoc_ColorTool (색상 노드 등록)
+         • 레거시 경로: ExportOCAFCmd::exportObjects() 사용
+         │
+         ▼
+    ③ WriterIges::write(hDoc)  또는  WriterStep::write(hDoc)
+       — 채워진 XCAF 문서를 파일로 저장
+
+Writer 내부 동작 요약:
+
+* **IGES Writer** (``WriterIges.cpp``):
+  - ``IGESCAFControl_Writer::Transfer(hDoc)`` 로 XCAF → IGES 엔터티 변환
+  - 헤더(Author/Company/Product)는 ``Part::Interface::writeIgesHeader*()`` 설정에서 읽음
+  - ``writer.Write(filename)`` 로 파일 저장; 실패 시 ``Base::FileException`` 발생
+
+* **STEP Writer** (``WriterStep.cpp``):
+  - ``STEPCAFControl_Writer::Transfer(hDoc, STEPControl_AsIs)`` 로 XCAF → STEP 변환
+  - 헤더(Author/Company 등)는 ``BaseApp/Preferences/Mod/Part/STEP`` 설정에서 읽음
+  - STEP은 UTF-8 파일명을 지원하지 않으므로 FileName 헤더 필드는 생략
+  - ``writer.Write(filename)`` 로 파일 저장; 실패 시 ``Base::FileException`` 발생
+"""
+
+import os
+
+import FreeCAD
+import Import
+
+
+# ---------------------------------------------------------------------------
+# 공개 상수
+# ---------------------------------------------------------------------------
+
+#: STEP 형식으로 인식되는 파일 확장자 (소문자, 점 포함).
+STEP_EXTENSIONS = frozenset({".step", ".stp"})
+
+#: IGES 형식으로 인식되는 파일 확장자 (소문자, 점 포함).
+IGES_EXTENSIONS = frozenset({".iges", ".igs"})
+
+#: 지원되는 모든 파일 확장자.
+SUPPORTED_EXTENSIONS = STEP_EXTENSIONS | IGES_EXTENSIONS
+
+
+# ---------------------------------------------------------------------------
+# 공개 API
+# ---------------------------------------------------------------------------
+
+
+def convert(source_file, target_file):
+    """STEP 또는 IGES 형식의 3D 모델 파일을 상호 변환합니다.
+
+    *source_file* 을 임시 FreeCAD 문서로 불러온 뒤, 불러온 모든 객체를
+    *target_file* 로 내보냅니다. 오류가 발생하더라도 임시 문서는 항상 닫힙니다.
+
+    매개변수
+    --------
+    source_file : str
+        원본 모델 파일 경로. 확장자가 ``.step``, ``.stp``, ``.iges``,
+        ``.igs`` 중 하나여야 합니다 (대소문자 구분 없음).
+    target_file : str
+        변환된 모델을 저장할 경로. 파일 형식은 확장자로 결정됩니다
+        (*source_file* 과 동일한 확장자 집합을 지원).
+
+    예외
+    ----
+    ValueError
+        *source_file* 또는 *target_file* 의 확장자가 지원되지 않는 경우.
+    RuntimeError
+        *source_file* 에서 객체를 읽을 수 없거나, 내부 가져오기/내보내기
+        작업이 실패한 경우.
+
+    사용 예
+    -------
+    STEP 파일을 IGES로 변환:
+
+    >>> import convert
+    >>> convert.convert("어셈블리.step", "어셈블리.igs")
+
+    IGES 파일을 STEP으로 변환:
+
+    >>> convert.convert("부품.igs", "부품.step")
+    """
+    src_ext = os.path.splitext(source_file)[1].lower()
+    tgt_ext = os.path.splitext(target_file)[1].lower()
+
+    if src_ext not in SUPPORTED_EXTENSIONS:
+        raise ValueError(
+            "지원하지 않는 원본 형식 '{}'. 지원 확장자: {}".format(
+                src_ext, ", ".join(sorted(SUPPORTED_EXTENSIONS))
+            )
+        )
+    if tgt_ext not in SUPPORTED_EXTENSIONS:
+        raise ValueError(
+            "지원하지 않는 대상 형식 '{}'. 지원 확장자: {}".format(
+                tgt_ext, ", ".join(sorted(SUPPORTED_EXTENSIONS))
+            )
+        )
+
+    doc = FreeCAD.newDocument("_ImportConversionDoc")
+    try:
+        Import.insert(source_file, doc.Name)
+        objects = list(doc.Objects)
+        if not objects:
+            raise RuntimeError(
+                "'{}' 에서 가져온 객체가 없습니다.".format(source_file)
+            )
+        Import.export(objects, target_file)
+    finally:
+        FreeCAD.closeDocument(doc.Name)
